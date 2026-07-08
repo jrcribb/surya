@@ -104,7 +104,7 @@ def _raster_positions(boxes_xyxy) -> List[int]:
 
 def load_order_predictor(checkpoint: Optional[str] = None, device: str = "cpu"):
     """Resolve + load the order predictor, or return None if no checkpoint is configured/available."""
-    from surya.common.rtdetr_onnx import resolve_model_dir
+    from surya.common.rfdetr_torch import resolve_model_dir
     from surya.settings import settings
 
     ckpt = checkpoint or getattr(settings, "FAST_ORDER_MODEL_CHECKPOINT", None)

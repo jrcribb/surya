@@ -128,19 +128,19 @@ class Settings(BaseSettings):
     OCR_ERROR_BATCH_SIZE: Optional[int] = None
 
     # ---- Fast layout (rf-detr, CPU) ------------------------------------------
-    # Lightweight detector. Checkpoint may be a local dir (rf-detr .pth + config.json, or an
-    # exported model.onnx + config.json), an hf://<repo>/<subfolder> ref, or an s3:// path.
+    # Lightweight detector. Checkpoint may be a local dir (rf-detr .pth + config.json),
+    # an hf://<repo>/<subfolder> ref, or an s3:// path.
     # Override via FAST_LAYOUT_MODEL_CHECKPOINT.
     FAST_LAYOUT_MODEL_CHECKPOINT: str = "hf://datalab-to/surya_layout2"
     FAST_LAYOUT_BATCH_SIZE: Optional[int] = None
     FAST_LAYOUT_CONFIDENCE_THRESHOLD: float = 0.4
-    FAST_ORDER_MODEL_CHECKPOINT: str = "hf://datalab-to/surya_models/fast_order"
+    FAST_ORDER_MODEL_CHECKPOINT: str = "hf://datalab-to/surya_layout2/order"
     # Run the learned reading-order head after fast layout. When False, boxes come
     # back in raster order (top-to-bottom, left-to-right) and the order model is
     # neither loaded nor run — saves latency at the cost of reading-order quality.
     FAST_LAYOUT_USE_ORDER: bool = True
-    # Device for the rf-detr fast detectors. None = auto (cuda > mps > cpu). Override to
-    # force "cpu"/"cuda"/"mps". (ONNX engine, if used, stays CPU.)
+    # Device for the rf-detr fast detector. None = auto (cuda > mps > cpu). Override to
+    # force "cpu"/"cuda"/"mps".
     FAST_DETECTOR_DEVICE: Optional[str] = None
 
     # ---- Debug / draw fonts (label rendering on annotated images) ----------

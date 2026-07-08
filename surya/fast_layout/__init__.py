@@ -1,8 +1,8 @@
-"""FastLayoutPredictor — RT-DETRv2 ONNX page-layout detector (CPU).
+"""FastLayoutPredictor — rf-detr page-layout detector (torch; cpu/mps/cuda).
 
 Drop-in alternative to surya.layout.LayoutPredictor: same LayoutResult/LayoutBox output, but
-a ~20M-param CPU ONNX detector instead of the VLM. Labels are canonicalized through the same
-LAYOUT_PRED_RELABEL map the VLM layout model uses, so downstream consumers (marker) are unchanged.
+a lightweight rf-detr object detector instead of the VLM. Labels are canonicalized through the
+same LAYOUT_PRED_RELABEL map the VLM layout model uses, so downstream consumers (marker) are unchanged.
 """
 
 from __future__ import annotations
@@ -12,9 +12,8 @@ from typing import List, Optional
 
 from PIL import Image
 
-from surya.common.rfdetr_torch import load_detector
+from surya.common.rfdetr_torch import load_detector, resolve_model_dir
 from surya.common.order.predictor import load_order_predictor
-from surya.common.rtdetr_onnx import resolve_model_dir
 from surya.layout.label import LAYOUT_PRED_RELABEL
 from surya.layout.schema import LayoutBox, LayoutResult
 from surya.logging import get_logger
@@ -74,7 +73,7 @@ class FastLayoutPredictor:
 
     def to(
         self, *args, **kwargs
-    ):  # API parity with other predictors (no-op on CPU ONNX)
+    ):  # API parity with other predictors (no-op; device is set at load)
         return
 
     def __call__(
