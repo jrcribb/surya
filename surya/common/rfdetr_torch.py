@@ -1,11 +1,10 @@
 """RfDetrTorch — rf-detr (Roboflow) detector via the vendored model copy (no rfdetr package).
 
-Exposes the same ``.detect()`` interface as :class:`surya.common.rtdetr_onnx.RTDetrOnnx`
-so ``fast_table`` / ``fast_layout`` are engine-agnostic. Inference goes through the slimmed,
-detection-only model definition vendored under ``surya.common.rfdetr`` (validated byte-for-byte
-against the upstream rfdetr package). Pure PyTorch — runs on cpu/mps/cuda.
+Backs ``fast_layout``. Inference goes through the slimmed, detection-only model
+definition vendored under ``surya.common.rfdetr`` (validated byte-for-byte against the
+upstream rfdetr package). Pure PyTorch — runs on cpu/mps/cuda.
 
-Model dir layout (downloaded from datalab-to/surya_models):
+Model dir layout (downloaded from the Hub):
   rfdetr_<task>.pth   the fine-tuned rf-detr weights
   config.json         {"arch": "rf-detr-large", "categories": [{"id", "name"}, ...], ...}
 """
@@ -26,6 +25,37 @@ class _DetList(list):
     features = None
 
 
+_MPS_OP_OK: Optional[bool] = None
+
+
+def _mps_op_supported() -> bool:
+    """Probe (once) whether the DINOv2 pos-embed op the rf-detr backbone needs runs on
+    MPS. It uses antialiased bicubic (aten::_upsample_bicubic2d_aa), which has no MPS
+    kernel — it only works if PYTORCH_ENABLE_MPS_FALLBACK=1 was set before `import torch`
+    (surya/__init__.py sets it, but that's too late if torch was already imported).
+    Probing at runtime is the only reliable signal, since the env var reads "1" even when
+    torch ignored it."""
+    global _MPS_OP_OK
+    if _MPS_OP_OK is None:
+        import warnings
+
+        import torch
+
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                torch.nn.functional.interpolate(
+                    torch.zeros(1, 1, 4, 4, device="mps"),
+                    size=(6, 6),
+                    mode="bicubic",
+                    antialias=True,
+                )
+            _MPS_OP_OK = True
+        except Exception:
+            _MPS_OP_OK = False
+    return _MPS_OP_OK
+
+
 def _pick_device(device: Optional[str]) -> str:
     import torch
 
@@ -33,7 +63,10 @@ def _pick_device(device: Optional[str]) -> str:
         return device
     if torch.cuda.is_available():
         return "cuda"
-    if torch.backends.mps.is_available():
+    # Use MPS only if the CPU-fallback for the unsupported bicubic op is actually live
+    # (see _mps_op_supported); otherwise auto-select CPU (rf-detr is ~0.3s/page on CPU)
+    # so Apple Silicon never crashes regardless of import order.
+    if torch.backends.mps.is_available() and _mps_op_supported():
         return "mps"
     return "cpu"
 
@@ -51,10 +84,19 @@ class RfDetrTorch:
             torch.set_num_threads(int(num_threads))
 
         self.device = _pick_device(device)
-        if self.device == "mps":
-            # DINOv2 backbone hits a few ops without MPS kernels; fall back to CPU per-op
-            # instead of crashing.
-            os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+        if self.device == "mps" and not _mps_op_supported():
+            # Only reached when the user explicitly forces mps (auto-select already
+            # probes and drops to CPU — see _pick_device). The DINOv2 pos-embed op has
+            # no MPS kernel and will raise unless PYTORCH_ENABLE_MPS_FALLBACK=1 was set
+            # BEFORE torch was imported (surya/__init__.py sets it, but that's too late
+            # if torch was already loaded).
+            from surya.logging import get_logger
+
+            get_logger().warning(
+                "FAST_DETECTOR_DEVICE=mps but the MPS bicubic fallback isn't active "
+                "(torch was likely imported before surya); the rf-detr detector will "
+                "crash. Export PYTORCH_ENABLE_MPS_FALLBACK=1 before importing torch, or use cpu/cuda."
+            )
 
         with open(os.path.join(model_dir, "config.json")) as f:
             cfg = json.load(f)
@@ -127,42 +169,35 @@ class RfDetrTorch:
         return out
 
 
-def _find_onnx_dir(model_dir: str) -> Optional[str]:
-    """Return the directory containing an exported ``model.onnx`` (alongside its
-    ``config.json``). Checkpoints ship the onnx in a dated subfolder
-    (e.g. ``2025_06/model.onnx``) next to the legacy ``.pth`` weights, so look
-    one level down and prefer the most recent if there are several."""
-    if os.path.exists(os.path.join(model_dir, "model.onnx")):
-        return model_dir
-    candidates = sorted(
-        os.path.dirname(p)
-        for p in glob.glob(os.path.join(model_dir, "*", "model.onnx"))
-    )
-    return candidates[-1] if candidates else None
-
-
 def load_detector(
     model_dir: str, num_threads: Optional[int] = None, device: Optional[str] = None
 ):
-    """Pick the inference engine from what's in the model dir: rf-detr ``.pth`` weights
-    (torch; cuda/mps/cpu) or an exported ``model.onnx`` (RT-DETRv2, pure onnxruntime, CPU).
-
-    The torch ``.pth`` are the validated, in-use weights and are preferred. The ONNX
-    export is used only as a fallback when no ``.pth`` is present (the current dated
-    exports score ~0 on real pages — broken/stale — so they must not shadow the .pth).
-    Set ``SURYA_FORCE_ONNX_DETECTOR=1`` to force the ONNX engine once the export is fixed.
-    On CPU the torch rf-detr runs ~0.3s/page, so it remains the fast-mode path."""
-    force_onnx = os.environ.get("SURYA_FORCE_ONNX_DETECTOR", "").lower() in (
-        "1",
-        "true",
-        "yes",
-    )
-    has_pth = bool(glob.glob(os.path.join(model_dir, "*.pth")))
-    if has_pth and not force_onnx:
-        return RfDetrTorch(model_dir, num_threads=num_threads, device=device)
-    onnx_dir = _find_onnx_dir(model_dir)
-    if onnx_dir is not None:
-        from surya.common.rtdetr_onnx import RTDetrOnnx
-
-        return RTDetrOnnx(onnx_dir, num_threads=num_threads)
+    """Build the rf-detr torch detector from a model dir containing ``.pth`` weights
+    + ``config.json``. On CPU the torch rf-detr runs ~0.3s/page, so it remains the
+    fast-mode path."""
     return RfDetrTorch(model_dir, num_threads=num_threads, device=device)
+
+
+def resolve_model_dir(checkpoint: str) -> str:
+    """Resolve a fast-model checkpoint to a local dir. Supports a plain local path, an
+    ``hf://<repo>/<subfolder>`` ref (downloaded from the Hub), or an ``s3://`` path."""
+    if checkpoint and checkpoint.startswith("hf://"):
+        from huggingface_hub import snapshot_download
+
+        parts = checkpoint[len("hf://") :].split("/")
+        repo_id = "/".join(parts[:2])
+        subfolder = "/".join(parts[2:])
+        local = snapshot_download(
+            repo_id,
+            allow_patterns=[f"{subfolder}/*"] if subfolder else None,
+        )
+        return os.path.join(local, subfolder) if subfolder else local
+    if checkpoint and os.path.isdir(checkpoint):
+        return checkpoint
+    if checkpoint and checkpoint.startswith("s3://"):
+        from surya.common.s3 import download_directory  # type: ignore
+
+        return download_directory(checkpoint)
+    raise FileNotFoundError(
+        f"fast-model checkpoint not found as a local dir: {checkpoint!r}"
+    )
