@@ -1,6 +1,6 @@
 [project]
 name = "surya-ocr"
-version = "0.21.1"
+version = "0.21.2"
 description = "OCR, layout, reading order, and table recognition in 90+ languages."
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -17,7 +17,7 @@ dependencies = [
     "pydantic-settings>=2.1.0,<3",
     "python-dotenv>=1.0.0,<2",
     "pillow>=10.2.0,<11",
-    "pypdfium2==5.9.0",
+    "pypdfium2>=5.10.1,<6",
     "filetype>=1.2.0,<2",
     "click>=8.1.8,<9",
     "platformdirs>=4.3.6,<5",
