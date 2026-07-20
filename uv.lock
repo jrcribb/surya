@@ -3999,7 +3999,7 @@ wheels = [
 
 [[package]]
 name = "surya-ocr"
-version = "0.21.2"
+version = "0.22.1"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
@@ -4016,6 +4016,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "pypdfium2" },
     { name = "python-dotenv" },
+    { name = "requests" },
     { name = "torch" },
     { name = "torchvision" },
     { name = "transformers" },
@@ -4050,6 +4051,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.1.0,<3" },
     { name = "pypdfium2", specifier = ">=5.10.1,<6" },
     { name = "python-dotenv", specifier = ">=1.0.0,<2" },
+    { name = "requests", specifier = ">=2.28.0,<3" },
     { name = "torch", specifier = ">=2.7.0,<3" },
     { name = "torchvision", specifier = ">=0.20.0,<1" },
     { name = "transformers", specifier = ">=5.12.1" },

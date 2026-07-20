@@ -74,3 +74,50 @@ def test_continuous_batching_coalesces(engine, test_image, monkeypatch):
 
     assert sum(sizes) == 6
     assert max(sizes) > 1  # at least some pages coalesced into one forward
+
+
+def _box(label, x0, y0, x1, y1, pos=0):
+    from surya.layout.schema import LayoutBox
+
+    return LayoutBox(
+        polygon=[[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
+        label=label,
+        raw_label=label,
+        position=pos,
+        confidence=0.5,
+    )
+
+
+def test_merge_contained_same_label():
+    """A same-label box fully inside a larger one is dropped (no model needed)."""
+    from surya.fast_layout import _merge_contained_boxes
+
+    big = _box("Text", 0, 0, 100, 100, pos=0)
+    inner = _box("Text", 10, 10, 40, 40, pos=1)
+    out = _merge_contained_boxes([big, inner], 0.9)
+    assert len(out) == 1
+    assert out[0].bbox == [0, 0, 100, 100]
+    assert out[0].position == 0  # renumbered contiguously
+
+
+def test_merge_keeps_cross_label():
+    """A different-label box inside another is kept (e.g. PageHeader in Text)."""
+    from surya.fast_layout import _merge_contained_boxes
+
+    text = _box("Text", 0, 0, 100, 100, pos=0)
+    header = _box("PageHeader", 10, 10, 40, 40, pos=1)
+    out = _merge_contained_boxes([text, header], 0.9)
+    assert len(out) == 2
+    assert {b.label for b in out} == {"Text", "PageHeader"}
+
+
+def test_merge_expands_to_union_on_near_overlap():
+    """A same-label box that mostly overlaps but pokes out extends the survivor."""
+    from surya.fast_layout import _merge_contained_boxes
+
+    big = _box("Text", 0, 0, 100, 100)
+    # 90% inside, pokes out to x=110
+    poke = _box("Text", 50, 50, 110, 60)
+    out = _merge_contained_boxes([big, poke], 0.5)
+    assert len(out) == 1
+    assert out[0].bbox[2] == 110  # survivor grew to the union

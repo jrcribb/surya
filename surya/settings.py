@@ -153,6 +153,11 @@ class Settings(BaseSettings):
     FAST_LAYOUT_MODEL_CHECKPOINT: str = "hf://datalab-to/surya_layout2"
     FAST_LAYOUT_BATCH_SIZE: Optional[int] = None
     FAST_LAYOUT_CONFIDENCE_THRESHOLD: float = 0.4
+    # Post-process: if a same-label block is contained within (or overlaps almost
+    # entirely with) a larger same-label block, drop the smaller and merge its
+    # extent into the larger. This is the fraction of the smaller box that must lie
+    # inside the larger to trigger the merge. Set to >1 to disable.
+    FAST_LAYOUT_CONTAINMENT_THRESHOLD: float = 0.9
     FAST_ORDER_MODEL_CHECKPOINT: str = "hf://datalab-to/surya_layout2/order"
     # Run the learned reading-order head after fast layout. When False, boxes come
     # back in raster order (top-to-bottom, left-to-right) and the order model is

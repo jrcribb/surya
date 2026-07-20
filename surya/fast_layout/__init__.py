@@ -30,6 +30,47 @@ def _poly(b):
     return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
 
 
+def _merge_contained_boxes(boxes: List[LayoutBox], threshold: float) -> List[LayoutBox]:
+    """Drop same-label boxes that are (near-)contained in a larger same-label box.
+
+    rf-detr sometimes emits a big block plus smaller duplicate/fragment blocks of
+    the same type inside it (e.g. a Text column plus Text fragments). For each box,
+    if at least `threshold` of its area lies within a larger box of the *same*
+    label, the smaller is removed and its extent merged into the larger (the larger
+    grows to their union, so any sliver poking out is preserved). Restricted to the
+    same label so a distinct element that merely falls within another's bbox (e.g. a
+    PageHeader inside a page-spanning Text box) is kept. `threshold` > 1 disables it.
+    """
+    if threshold > 1 or len(boxes) < 2:
+        return boxes
+    # Largest first, so smaller boxes get absorbed into the bigger survivor.
+    survivors: List[LayoutBox] = []
+    for b in sorted(boxes, key=lambda x: x.area, reverse=True):
+        absorbed = False
+        for s in survivors:
+            if s.label != b.label:
+                continue
+            if b.area > 0 and s.intersection_area(b) / b.area >= threshold:
+                sb, bb = s.bbox, b.bbox
+                s.polygon = _poly(
+                    [
+                        min(sb[0], bb[0]),
+                        min(sb[1], bb[1]),
+                        max(sb[2], bb[2]),
+                        max(sb[3], bb[3]),
+                    ]
+                )
+                absorbed = True
+                break
+        if not absorbed:
+            survivors.append(b)
+    # Re-number reading order contiguously over the survivors.
+    survivors.sort(key=lambda x: x.position)
+    for rank, b in enumerate(survivors):
+        b.position = rank
+    return survivors
+
+
 def build_layout_result(image: Image.Image, dets, order) -> LayoutResult:
     """Turn one page's raw rf-detr detections into an ordered LayoutResult.
 
@@ -78,6 +119,7 @@ def build_layout_result(image: Image.Image, dets, order) -> LayoutResult:
                 confidence=d["score"],
             )
         )
+    boxes = _merge_contained_boxes(boxes, settings.FAST_LAYOUT_CONTAINMENT_THRESHOLD)
     boxes.sort(key=lambda b: b.position)
     return LayoutResult(
         bboxes=boxes,
